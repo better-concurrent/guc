@@ -1,4 +1,4 @@
-package util
+package guc
 
 import (
 	"unsafe"
@@ -79,13 +79,13 @@ func Strhash(a unsafe.Pointer, h uintptr) uintptr
 func Interhash(p unsafe.Pointer, h uintptr) uintptr
 
 //go:linkname Nilinterhash runtime.nilinterhash
-func Nilinterhash(p unsafe.Pointer, h uintptr)
+func Nilinterhash(p unsafe.Pointer, h uintptr) uintptr
 
 //go:linkname F32hash runtime.f32hash
-func F32hash(p unsafe.Pointer, h uintptr)
+func F32hash(p unsafe.Pointer, h uintptr) uintptr
 
 //go:linkname F64hash runtime.f64hash
-func F64hash(p unsafe.Pointer, h uintptr)
+func F64hash(p unsafe.Pointer, h uintptr) uintptr
 
 //go:linkname C64hash runtime.c64hash
 func C64hash(p unsafe.Pointer, h uintptr) uintptr

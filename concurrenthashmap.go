@@ -1,4 +1,4 @@
-package main
+package guc
 
 import (
 	"sync/atomic"
