@@ -2,6 +2,8 @@ package guc
 
 import (
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unsafe"
@@ -47,6 +49,12 @@ type testS2 struct {
 	i int32
 }
 
+type testS3 struct {
+	i int32
+	//arr []testS
+	arr unsafe.Pointer
+}
+
 func TestEface(t *testing.T) {
 	test1 := testS{i: 1, s: "test"}
 	fmt.Println(unpackEFace(test1))
@@ -79,4 +87,96 @@ func TestStructEquals(t *testing.T) {
 	if !Nilinterequal(unsafe.Pointer(unpackEFace(test1)), unsafe.Pointer(unpackEFace(test2))) {
 		t.Error("equals error!")
 	}
+
+	if !Nilinterequal(unsafe.Pointer(unpackEFace(*&test1)), unsafe.Pointer(unpackEFace(test2))) {
+		t.Error("equals error!")
+	}
+}
+
+func TestUnsafeLoad(t *testing.T) {
+	test := testS3{i: 1, arr: nil}
+	fmt.Println(test)
+	arr := []testS{{i: 1}}
+	value := atomic.Value{}
+	fmt.Println(value.Load())
+	value.Store(arr)
+	fmt.Println(value.Load())
+
+	arrp := [2]*testS{}
+	arrp[0] = &testS{i: 1}
+	arrup := [2]unsafe.Pointer{}
+	p := unsafe.Pointer(&testS{i: 3})
+	arrup[0] = p
+	atomic.StorePointer(&arrup[1], p)
+	fmt.Println((*testS)(atomic.LoadPointer(&arrup[0])))
+	fmt.Println((*testS)(atomic.LoadPointer(&arrup[1])))
+}
+
+type testS4 struct {
+	i int32
+	t *testS
+}
+
+func (test *testS4) getT() interface{} {
+	return *test.t
+}
+
+func TestObjectCopy(t *testing.T) {
+	test := testS4{i: 1, t: &testS{1, "s"}}
+	fmt.Println(test)
+	var local interface{}
+	local = test.getT()
+	fmt.Println(&local)
+	fmt.Println(unpackEFace(local).rtype)
+	fmt.Println(unpackEFace(local).data)
+	fmt.Printf("%T\n", local)
+	fmt.Println(local == *test.t)
+}
+
+type testS5 struct {
+	i int32
+	p unsafe.Pointer // is *[]*testS
+}
+
+func TestPointerLoad(t *testing.T) {
+	test := testS5{i: 2, p: nil}
+	fmt.Println(test)
+	arr := make([]*testS, test.i)
+	arr[0] = &testS{i: 1, s: "a"}
+	test.p = unsafe.Pointer(&arr)
+	pp := (*[]*testS)(test.p)
+	fmt.Println((*pp)[0])
+
+	newT := &testS{i: 2, s: "b"}
+	//p := unsafe.Pointer((*pp)[0])
+	p := (unsafe.Pointer)((*pp)[0])
+	fmt.Println((*testS)(p))
+	test.p = unsafe.Pointer(newT)
+	atomic.StorePointer(&p, unsafe.Pointer(newT))
+	fmt.Println((*testS)(p))
+	fmt.Println((*pp)[0])
+}
+
+func TestMutex(t *testing.T) {
+	fmt.Println(unsafe.Sizeof(sync.Mutex{}))
+}
+
+func TestGolangInt(t *testing.T) {
+	for i := 0; i < 100000; i++ {
+		n := int(Fastrand()) & 0xffffffff
+		if n < 0 {
+			fmt.Println(n)
+		}
+	}
+}
+
+func TestArrayPointRef(t *testing.T) {
+	arr := make([]testS, 2)
+	arr[0].s = "a"
+	arr[1].s = "b"
+	ap := &arr
+	acp0 := &(*ap)[0]
+	acp1 := &(*ap)[0]
+	fmt.Printf("%p\n", acp0)
+	fmt.Printf("%p\n", acp1)
 }

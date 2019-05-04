@@ -131,3 +131,6 @@ func C64equal(p, q unsafe.Pointer) bool
 
 //go:linkname C128equal runtime.c128equal
 func C128equal(p, q unsafe.Pointer) bool
+
+//go:linkname Fastrand runtime.fastrand
+func Fastrand() uint32

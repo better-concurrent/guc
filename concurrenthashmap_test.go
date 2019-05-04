@@ -44,3 +44,60 @@ func TestTableSizeAlign(t *testing.T) {
 		t.Error("resize error")
 	}
 }
+
+func TestTabAt(t *testing.T) {
+	n0 := node{hash: 1}
+	tab := make([]unsafe.Pointer, 4)
+	if tabAt(&tab, 0) != nil {
+		t.Error("tab at error")
+	}
+	if casTabAt(&tab, 0, nil, &n0) {
+		if tabAt(&tab, 0) != &n0 {
+			t.Error("tab at error")
+		}
+	}
+}
+
+type innerStruct struct {
+	j int32
+}
+
+type keyObject struct {
+	i     int32
+	s     string
+	inner innerStruct
+}
+
+type valueObject struct {
+	v string
+}
+
+func TestBasicOperation(t *testing.T) {
+	key0 := keyObject{i: 0, s: "a", inner: innerStruct{32}}
+	value0 := valueObject{v: "v"}
+
+	cmap := ConcurrentHashMap{}
+	cmap.init(16, 4)
+	fmt.Println(cmap)
+	oldValue := cmap.Store(key0, value0)
+	if oldValue != nil {
+		t.Error("Store error")
+	}
+	oldValue1 := cmap.Store(key0, value0)
+	if oldValue1 == nil || value0 != oldValue1 {
+		t.Error("Store error")
+	}
+	value1, _ := cmap.Load(key0)
+	if value0 != value1 {
+		t.Error("Load error")
+	}
+	fmt.Println(cmap)
+}
+
+func TestContendedCell(t *testing.T) {
+	cc := CounterCell{}
+	fmt.Println(unsafe.Sizeof(cc))
+	if unsafe.Sizeof(cc) != CacheLineSize {
+		t.Error("padding error")
+	}
+}
