@@ -2,6 +2,7 @@ package guc
 
 import (
 	"container/heap"
+	"unsafe"
 )
 
 var _ Queue = new(PriorityQueue)
@@ -16,6 +17,33 @@ type priorityData struct {
 
 type PriorityQueue struct {
 	data priorityData
+}
+
+type priorityQueueIter struct {
+	idx   int
+	data  []interface{}
+	queue *PriorityQueue
+}
+
+func (this *priorityQueueIter) HasNext() bool {
+	this.idx++
+	return this.idx < len(this.data)
+}
+
+func (this *priorityQueueIter) Next() interface{} {
+	r := this.data[this.idx]
+	return r
+}
+
+func (this *priorityQueueIter) Remove() {
+	heap.Remove(&this.queue.data, this.idx)
+	this.data = this.queue.data.data
+}
+
+func (this *priorityQueueIter) ForEachRemaining(consumer func(i interface{})) {
+	for this.HasNext() {
+		consumer(this.Next())
+	}
 }
 
 func NewPriority() *PriorityQueue {
@@ -77,8 +105,11 @@ func (this *priorityData) Pop() interface{} {
 }
 
 func (this *PriorityQueue) Iterator() Iterator {
-	//TODO
-	panic("implement me")
+	iter := new(priorityQueueIter)
+	iter.idx = -1
+	iter.data = this.data.data
+	iter.queue = this
+	return iter
 }
 
 func (this *PriorityQueue) ForEach(consumer func(i interface{})) {
@@ -174,13 +205,31 @@ func (this *PriorityQueue) RemoveAll(coll Collection) bool {
 }
 
 func (this *PriorityQueue) RemoveIf(predicate func(i interface{}) bool) bool {
-	//TODO
-	panic("implement me")
+	idx := -1
+	for i, v := range this.data.data {
+		if predicate(v) {
+			idx = i
+			break
+		}
+	}
+	if idx >= 0 {
+		heap.Remove(&this.data, idx)
+		return true
+	} else {
+		return false
+	}
 }
 
 func (this *PriorityQueue) RetainAll(coll Collection) bool {
-	//TODO
-	panic("implement me")
+	iter := this.Iterator()
+	changed := false
+	for iter.HasNext() {
+		if !coll.Contains(iter.Next()) {
+			iter.Remove()
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (this *PriorityQueue) Clear() {
@@ -188,13 +237,15 @@ func (this *PriorityQueue) Clear() {
 }
 
 func (this *PriorityQueue) Equals(i interface{}) bool {
-	//TODO
-	panic("implement me")
+	p, ok := i.(*PriorityQueue)
+	if ok {
+		return p == this
+	}
+	return false
 }
 
 func (this *PriorityQueue) HashCode() int {
-	//TODO
-	panic("implement me")
+	return int(uintptr(unsafe.Pointer(this)))
 }
 
 func (this *PriorityQueue) Offer(i interface{}) bool {
