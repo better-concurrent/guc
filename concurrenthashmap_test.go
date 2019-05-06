@@ -2,6 +2,7 @@ package guc
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 	"unsafe"
 )
@@ -68,6 +69,10 @@ type keyObject struct {
 	inner innerStruct
 }
 
+type keyObject2 struct {
+	i int
+}
+
 type valueObject struct {
 	v string
 }
@@ -95,8 +100,7 @@ func TestBasicOperation(t *testing.T) {
 }
 
 func TestMapResize(t *testing.T) {
-	cmap := ConcurrentHashMap{}
-	cmap.init(4, 4)
+	cmap := NewConcurrentHashMap(4, 4)
 	total := 32
 	for i := 0; i < total; i++ {
 		key := keyObject{i: int32(i), s: "a", inner: innerStruct{32}}
@@ -119,4 +123,29 @@ func TestContendedCell(t *testing.T) {
 	if unsafe.Sizeof(cc) != CacheLineSize {
 		t.Fatalf("padding error")
 	}
+}
+
+func TestMultiGoroutine(t *testing.T) {
+	runtime.GOMAXPROCS(4)
+	gc := 4
+	countPerG := 1024 * 32
+	cmap := NewConcurrentHashMap(4, 4)
+	endCh := make(chan int)
+	value0 := valueObject{v: "v"}
+	for i := 0; i < gc; i++ {
+		go func() {
+			begin := i * countPerG
+			for n := 0; n < begin+countPerG; n++ {
+				key := keyObject2{i: n}
+				cmap.Store(key, value0)
+			}
+			endCh <- 1
+		}()
+	}
+	for i := 0; i < gc; i++ {
+		<-endCh
+	}
+	cmap.printTableDetail()
+	cmap.printCountDetail()
+	fmt.Println("end")
 }

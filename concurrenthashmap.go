@@ -279,6 +279,12 @@ func casTabAt(tab *[]unsafe.Pointer, i int32, c, v *node) bool {
 	return atomic.CompareAndSwapPointer(&(*tab)[i], unsafe.Pointer(c), unsafe.Pointer(v))
 }
 
+func NewConcurrentHashMap(initialCapacity, concurrencyLevel int32) *ConcurrentHashMap {
+	cmap := ConcurrentHashMap{}
+	cmap.init(initialCapacity, concurrencyLevel)
+	return &cmap
+}
+
 func (m *ConcurrentHashMap) sumCount() int64 {
 	cells := m.getCountCells()
 	sum := atomic.LoadInt64(&m.baseCount)
@@ -458,7 +464,6 @@ func (m *ConcurrentHashMap) storeVal(key, value interface{}, onlyIfAbsent bool) 
 							if e.hash == h {
 								ek := e.getKey()
 								if key == ek {
-									fmt.Printf("error key is %v\n", ek)
 									oldVal = e.getValue()
 									if !onlyIfAbsent {
 										e.val = unsafe.Pointer(&value)
@@ -496,8 +501,30 @@ func (m *ConcurrentHashMap) storeVal(key, value interface{}, onlyIfAbsent bool) 
 	return nil
 }
 
-func (m *ConcurrentHashMap) helpTransfer(tab *[]unsafe.Pointer, f *node) {
-	panic("NYI")
+// Helps transfer if a resize is in progress.
+func (m *ConcurrentHashMap) helpTransfer(tab *[]unsafe.Pointer, f *node) *[]unsafe.Pointer {
+	var nextTab *[]unsafe.Pointer
+	var sc int32
+	if tab != nil && f.extern.isForwardNode() {
+		nextTab = f.extern.(*forwardingNode).nextTable
+		if nextTab != nil {
+			rs := resizeStamp(int32(len(*tab)))
+			for nextTab == m.getNextTable() && tab == m.getTable() {
+				sc = atomic.LoadInt32(&m.sizeCtl)
+				if sc < 0 {
+					if sc>>resizeStampShift != rs || sc == rs+1 || sc == maxResizers || atomic.LoadInt32(&m.transferIndex) <= 0 {
+						break
+					}
+					if atomic.CompareAndSwapInt32(&m.sizeCtl, sc, sc+1) {
+						m.transfer(tab, nextTab)
+						break
+					}
+				}
+			} // end of for loop
+			return nextTab
+		}
+	}
+	return m.getTable()
 }
 
 // x: the count to add
@@ -561,7 +588,6 @@ func resizeStamp(n int32) int32 {
 	return int32(bits.LeadingZeros(uint(n)) | (1 << (resizeStampBits - 1)))
 }
 
-// FIXME
 func (m *ConcurrentHashMap) fullAddCount(x int64, wasUncontended bool) {
 	// TODO hard code
 	as := make([]CounterCell, defaultContendCellCount)
