@@ -81,23 +81,42 @@ func TestBasicOperation(t *testing.T) {
 	fmt.Println(cmap)
 	oldValue := cmap.Store(key0, value0)
 	if oldValue != nil {
-		t.Error("Store error")
+		t.Fatalf("Store error")
 	}
 	oldValue1 := cmap.Store(key0, value0)
 	if oldValue1 == nil || value0 != oldValue1 {
-		t.Error("Store error")
+		t.Fatalf("Store error")
 	}
 	value1, _ := cmap.Load(key0)
 	if value0 != value1 {
-		t.Error("Load error")
+		t.Fatalf("Load error")
 	}
 	fmt.Println(cmap)
+}
+
+func TestMapResize(t *testing.T) {
+	cmap := ConcurrentHashMap{}
+	cmap.init(4, 4)
+	total := 32
+	for i := 0; i < total; i++ {
+		key := keyObject{i: int32(i), s: "a", inner: innerStruct{32}}
+		value0 := valueObject{v: "v"}
+		cmap.Store(key, value0)
+		_, ok := cmap.Load(key)
+		if !ok {
+			t.Fatalf("get error")
+		}
+	}
+	if cmap.Size() != total {
+		t.Fatalf("cmap size is %d\n", cmap.Size())
+	}
+	cmap.printTableDetail()
 }
 
 func TestContendedCell(t *testing.T) {
 	cc := CounterCell{}
 	fmt.Println(unsafe.Sizeof(cc))
 	if unsafe.Sizeof(cc) != CacheLineSize {
-		t.Error("padding error")
+		t.Fatalf("padding error")
 	}
 }

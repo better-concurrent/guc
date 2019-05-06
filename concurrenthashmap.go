@@ -1,8 +1,10 @@
 package guc
 
 import (
+	"fmt"
 	"math/bits"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -17,6 +19,7 @@ const (
 	resizeStampBits         = 16
 	maxResizers             = (1 << (32 - resizeStampBits)) - 1
 	resizeStampShift        = 32 - resizeStampBits
+	minTransferStride       = 16
 )
 
 var hashSeed = generateHashSeed()
@@ -76,8 +79,9 @@ const (
 )
 
 type externNode interface {
-	find(n *node, h int32, k *interface{}) (node *node, ok bool)
+	find(n *node, h int32, k interface{}) (node *node, ok bool)
 	isTreeNode() bool
+	isForwardNode() bool
 }
 
 // base node
@@ -91,49 +95,139 @@ type node struct {
 	val unsafe.Pointer
 	// volatile, type is *node
 	next unsafe.Pointer
-
 	// FIXME! better design?
 	extern externNode
 }
 
 func (n *node) getKey() interface{} {
-	return *(*interface{})(n.key)
+	k := n.key
+	if k == nil {
+		return nil
+	} else {
+		return *(*interface{})(k)
+	}
 }
 
 func (n *node) getValue() interface{} {
-	return *(*interface{})(atomic.LoadPointer(&n.val))
+	v := atomic.LoadPointer(&n.val)
+	if v == nil {
+		return nil
+	} else {
+		return *(*interface{})(v)
+	}
+}
+
+func (n *node) getKeyPointer() unsafe.Pointer {
+	return n.key
+}
+
+func (n *node) getValuePointer() unsafe.Pointer {
+	return atomic.LoadPointer(&n.val)
 }
 
 func (n *node) getNext() *node {
 	return (*node)(atomic.LoadPointer(&n.next))
 }
 
+func (n *node) getExternNode() externNode {
+	return n.extern
+}
+
 type baseNode struct {
 }
 
-func (en *baseNode) find(n *node, h int32, k *interface{}) (*node, bool) {
-	panic("NYI")
+func (en *baseNode) find(n *node, h int32, k interface{}) (*node, bool) {
+	e := n
+	if k != nil {
+		for {
+			if h == e.hash {
+				ek := e.getKey()
+				if ek == k {
+					return e, true
+				}
+			}
+			// loop
+			e = (*node)(atomic.LoadPointer(&e.next))
+			if e == nil {
+				break
+			}
+		}
+	}
+	return nil, false
 }
 
 func (en *baseNode) isTreeNode() bool {
 	return false
 }
 
-type forwardingNode struct {
+func (en *baseNode) isForwardNode() bool {
+	return false
 }
 
-func (en *forwardingNode) find(n *node, h int32, k *interface{}) (*node, bool) {
-	panic("NYI")
+type forwardingNode struct {
+	nextTable *[]unsafe.Pointer
+}
+
+func newForwardingNode(tab *[]unsafe.Pointer) *node {
+	return &node{hash: moved, key: nil, val: nil, next: nil,
+		extern: &forwardingNode{nextTable: tab}}
+}
+
+func (en *forwardingNode) find(n *node, h int32, k interface{}) (*node, bool) {
+	// // loop to avoid arbitrarily deep recursion on forwarding nodes
+	continueOuter := false
+	tab := en.nextTable
+	for {
+		var e *node
+		var n int32
+		if k == nil || tab == nil {
+			return nil, false
+		} else {
+			n = int32(len(*tab))
+			e = tabAt(tab, (n-1)&h)
+			if n == 0 || e == nil {
+				return nil, false
+			}
+		} // end of if
+		for {
+			eh := e.hash
+			ek := e.key
+			if eh == h && ek == k {
+				return e, true
+			}
+			if eh < 0 {
+				if en.isForwardNode() {
+					tab = e.getExternNode().(*forwardingNode).nextTable
+					continueOuter = true
+					break
+				} else {
+					return e.extern.find(e, h, k)
+				}
+			}
+			if continueOuter {
+				break
+			}
+			e = e.getNext()
+			if e == nil {
+				return nil, false
+			}
+		} // end of inner loop
+	}
 }
 
 func (en *forwardingNode) isTreeNode() bool {
 	return false
 }
 
+func (en *forwardingNode) isForwardNode() bool {
+	return true
+}
+
+// TODO NYI
 type treeNode struct {
 }
 
-func (en *treeNode) find(n *node, h int32, k *interface{}) (*node, bool) {
+func (en *treeNode) find(n *node, h int32, k interface{}) (*node, bool) {
 	panic("NYI")
 }
 
@@ -175,6 +269,10 @@ func equals(v1, v2 *interface{}) bool {
 
 func tabAt(tab *[]unsafe.Pointer, i int32) *node {
 	return (*node)(atomic.LoadPointer(&(*tab)[i]))
+}
+
+func setTabAt(tab *[]unsafe.Pointer, i int32, v *node) {
+	atomic.StorePointer(&(*tab)[i], unsafe.Pointer(v))
 }
 
 func casTabAt(tab *[]unsafe.Pointer, i int32, c, v *node) bool {
@@ -249,12 +347,12 @@ func (m *ConcurrentHashMap) initTable() *[]unsafe.Pointer {
 	return m.getTable()
 }
 
-func (m *ConcurrentHashMap) Size() int32 {
+func (m *ConcurrentHashMap) Size() int {
 	sum := m.sumCount()
 	if sum < 0 {
 		return 0
 	} else {
-		return int32(sum)
+		return int(sum)
 	}
 }
 
@@ -297,12 +395,12 @@ func (m *ConcurrentHashMap) Load(key interface{}) (interface{}, bool) {
 		}
 	}
 	for {
-		next := e.getNext()
-		if next == nil {
+		e = e.getNext()
+		if e == nil {
 			break
 		}
-		if h == next.hash && key == next.getKey() {
-			return next.getValue(), true
+		if h == e.hash && key == e.getKey() {
+			return e.getValue(), true
 		}
 	}
 	return nil, false
@@ -346,7 +444,7 @@ func (m *ConcurrentHashMap) storeVal(key, value interface{}, onlyIfAbsent bool) 
 				if fh == moved {
 					m.helpTransfer(tab, f)
 				} else {
-					var oldVal *interface{} = nil
+					var oldVal interface{} = nil
 					// slow path
 					f.m.Lock()
 					// re-check
@@ -357,11 +455,11 @@ func (m *ConcurrentHashMap) storeVal(key, value interface{}, onlyIfAbsent bool) 
 					if fh >= 0 {
 						binCount = 1
 						for e := f; ; binCount++ {
-							var ek *interface{}
 							if e.hash == h {
-								ek = (*interface{})(e.key)
-								if key == *ek {
-									oldVal = (*interface{})(e.val)
+								ek := e.getKey()
+								if key == ek {
+									fmt.Printf("error key is %v\n", ek)
+									oldVal = e.getValue()
 									if !onlyIfAbsent {
 										e.val = unsafe.Pointer(&value)
 										break
@@ -369,7 +467,7 @@ func (m *ConcurrentHashMap) storeVal(key, value interface{}, onlyIfAbsent bool) 
 								}
 							}
 							pred := e
-							e = (*node)(e.next)
+							e = e.getNext()
 							if e == nil {
 								pred.next = unsafe.Pointer(&node{hash: h, key: unsafe.Pointer(&key),
 									val: unsafe.Pointer(&value), next: nil, extern: &baseNode{}})
@@ -386,8 +484,9 @@ func (m *ConcurrentHashMap) storeVal(key, value interface{}, onlyIfAbsent bool) 
 							m.treeifyBin(tab, i)
 						}
 						if oldVal != nil {
-							return *oldVal
+							return oldVal
 						}
+						break
 					}
 				}
 			}
@@ -427,7 +526,7 @@ func (m *ConcurrentHashMap) addCount(x int64, check int32) {
 			tab = m.getTable()
 			if s >= int64(sc) && tab != nil {
 				n := len(*tab)
-				if n < maxCapacity {
+				if n > maxCapacity {
 					break
 				}
 				rs := resizeStamp(int32(n))
@@ -508,6 +607,158 @@ func (m *ConcurrentHashMap) treeifyBin(tab *[]unsafe.Pointer, i int32) {
 }
 
 // Moves and/or copies the nodes in each bin to new table.
-func (m *ConcurrentHashMap) transfer(tab, nt *[]unsafe.Pointer) {
-	// TODO
+func (m *ConcurrentHashMap) transfer(tab, nextTab *[]unsafe.Pointer) {
+	var n, stride int
+	n = len(*tab)
+	ncpu := runtime.GOMAXPROCS(0)
+	// subdivide range
+	if ncpu > 1 {
+		stride = (ncpu >> 3) / n
+	} else {
+		stride = n
+	}
+	if stride < minTransferStride {
+		stride = minTransferStride
+	}
+	// initiating
+	if nextTab == nil {
+		newTable := make([]unsafe.Pointer, n<<1)
+		nextTab = &newTable
+		atomic.StorePointer(&m.nextTable, unsafe.Pointer(nextTab))
+		atomic.StoreInt32(&m.transferIndex, int32(n))
+	}
+	nextn := len(*nextTab)
+	fwd := newForwardingNode(nextTab)
+	var advance = true
+	var finishing = false
+	var i int32 = 0
+	var bound int32 = 0
+	for {
+		var f *node
+		var fh int32
+		for advance {
+			var nextIndex, nextBound int32
+			i = i - 1
+			if i >= bound || finishing {
+				advance = false
+			} else {
+				nextIndex = atomic.LoadInt32(&m.transferIndex)
+				if nextIndex <= 0 {
+					i = -1
+					advance = false
+				} else {
+					if nextIndex > int32(stride) {
+						nextBound = nextIndex - int32(stride)
+					} else {
+						nextBound = 0
+					}
+					if atomic.CompareAndSwapInt32(&m.transferIndex, nextIndex, nextBound) {
+						bound = nextBound
+						i = nextIndex - 1
+						advance = false
+					}
+				}
+			}
+		} // end of for advance loop
+		if i < 0 || int(i) >= n || int(i)+n >= nextn {
+			if finishing {
+				atomic.StorePointer(&m.nextTable, nil)
+				atomic.StorePointer(&m.table, unsafe.Pointer(nextTab))
+				ctl := (n << 1) - (n >> 1)
+				atomic.StoreInt32(&m.sizeCtl, int32(ctl))
+				return
+			}
+			sc := atomic.LoadInt32(&m.sizeCtl)
+			if atomic.CompareAndSwapInt32(&m.sizeCtl, sc, sc-1) {
+				if (sc - 2) != resizeStamp(int32(n))<<resizeStampShift {
+					return
+				}
+				advance = true
+				finishing = true
+				i = int32(n) // recheck before commit
+			}
+		} else {
+			f = tabAt(tab, i)
+			if f == nil {
+				advance = casTabAt(tab, i, nil, fwd)
+			} else {
+				fh = f.hash
+				if fh == moved {
+					advance = true // already processed
+				} else {
+					// synchronize f
+					f.m.Lock()
+					if tabAt(tab, i) == f {
+						var ln, hn *node
+						if fh >= 0 {
+							runBit := fh & int32(n)
+							lastRun := f
+							for p := (*node)(atomic.LoadPointer(&f.next)); p != nil; p = (*node)(atomic.LoadPointer(&p.next)) {
+								b := p.hash & int32(n)
+								if b != runBit {
+									runBit = b
+									lastRun = p
+								}
+							} // end of for loop
+							if runBit == 0 {
+								ln = lastRun
+								hn = nil
+							} else {
+								hn = lastRun
+								ln = nil
+							}
+							for p := f; p != lastRun; p = (*node)(atomic.LoadPointer(&p.next)) {
+								ph := p.hash
+								pk := p.getKeyPointer()
+								pv := p.getValuePointer()
+								if (ph & int32(n)) == 0 {
+									ln = &node{hash: ph, key: pk, val: pv,
+										next: unsafe.Pointer(ln), extern: &baseNode{}}
+								} else {
+									hn = &node{hash: ph, key: pk, val: pv,
+										next: unsafe.Pointer(hn), extern: &baseNode{}}
+								}
+							}
+							setTabAt(nextTab, i, ln)
+							setTabAt(nextTab, i+int32(n), hn)
+							setTabAt(tab, i, fwd)
+							advance = true
+						} else if f.extern.isTreeNode() {
+							panic("treeify not implement yet")
+						}
+					}
+					f.m.Unlock()
+				}
+			}
+		}
+	}
+}
+
+// debug func
+func (m *ConcurrentHashMap) printTableDetail() {
+	tab := m.getTable()
+	nextTab := m.getNextTable()
+	var tabSize, nextTabSize = 0, 0
+	if tab != nil {
+		tabSize = len(*tab)
+	}
+	if nextTab != nil {
+		nextTabSize = len(*nextTab)
+	}
+	fmt.Printf("[DEBUG] tab size is %d, nextTab size is %d\n", tabSize, nextTabSize)
+}
+
+func (m *ConcurrentHashMap) printCountDetail() {
+	bc := atomic.LoadInt64(&m.baseCount)
+	cells := m.getCountCells()
+	if cells == nil {
+		fmt.Printf("[DEBUG] baseCount is %d, cells is nil\n", bc)
+	} else {
+		content := ""
+		for i := 0; i < len(*cells); i++ {
+			c := (*cells)[i]
+			content += strconv.Itoa(int(c.value))
+		}
+		fmt.Printf("[DEBUG] baseCount is %d, cells is %s\n", bc, content)
+	}
 }
