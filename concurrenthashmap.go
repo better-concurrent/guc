@@ -259,8 +259,8 @@ func tableSizeFor(c int32) int32 {
 	}
 }
 
-func hash(v *interface{}) uintptr {
-	return Nilinterhash(unsafe.Pointer(unpackEFace(*v)), uintptr(hashSeed))
+func hash(v interface{}) uintptr {
+	return Nilinterhash(unsafe.Pointer(&v), uintptr(hashSeed))
 }
 
 func equals(v1, v2 *interface{}) bool {
@@ -370,7 +370,7 @@ func (m *ConcurrentHashMap) Load(key interface{}) (interface{}, bool) {
 	if key == nil {
 		panic("key is nil!")
 	}
-	h := spread(hash(&key))
+	h := spread(hash(key))
 	tab := m.getTable()
 	// not initialized
 	if tab == nil {
@@ -426,7 +426,7 @@ func (m *ConcurrentHashMap) storeVal(key, value interface{}, onlyIfAbsent bool) 
 		panic("key or value is null")
 	}
 	var binCount int32 = 0
-	h := spread(hash(&key))
+	h := spread(hash(key))
 	for {
 		tab := m.getTable()
 		var n int32
