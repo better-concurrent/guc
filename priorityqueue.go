@@ -38,6 +38,7 @@ func (this *priorityQueueIter) Next() interface{} {
 func (this *priorityQueueIter) Remove() {
 	heap.Remove(&this.queue.data, this.idx)
 	this.data = this.queue.data.data
+	this.idx--
 }
 
 func (this *priorityQueueIter) ForEachRemaining(consumer func(i interface{})) {
@@ -129,18 +130,18 @@ func (this *PriorityQueue) IsEmpty() bool {
 func (this *PriorityQueue) Contains(i interface{}) bool {
 	data := this.data.data
 	for _, v := range data {
-		if !v.(Object).Equals(i) {
-			return false
+		if v.(Object).Equals(i) {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func (this *PriorityQueue) ToArray() []interface{} {
 	data := this.data.data
 	result := make([]interface{}, 0, len(data))
-	for i, v := range data {
-		result[i] = v
+	for _, v := range data {
+		result = append(result, v)
 	}
 	return result
 }
@@ -162,9 +163,9 @@ func (this *PriorityQueue) Add(i interface{}) bool {
 	return true
 }
 
-func (this *PriorityQueue) Remove(i interface{}) bool {
+func (this *PriorityQueue) Remove(item interface{}) bool {
 	for i, v := range this.data.data {
-		if v.(Object).Equals(i) {
+		if v.(Object).Equals(item) {
 			heap.Remove(&this.data, i)
 			return true
 		}
