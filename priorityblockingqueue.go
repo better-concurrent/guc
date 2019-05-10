@@ -1,6 +1,7 @@
 package guc
 
 import (
+	"math"
 	"sync"
 	"time"
 	"unsafe"
@@ -12,6 +13,21 @@ type PriorityBlockingQueue struct {
 	lock          sync.Mutex
 	priorityQueue PriorityQueue
 	cond          *sync.Cond
+}
+
+func NewPriorityBlockingQueue() *PriorityBlockingQueue {
+	queue := &PriorityBlockingQueue{
+		cond: sync.NewCond(new(sync.Mutex)),
+	}
+	return queue
+}
+
+func NewPriorityBlockingQueueWithComparator(comparator Comparator) *PriorityBlockingQueue {
+	queue := &PriorityBlockingQueue{
+		cond: sync.NewCond(new(sync.Mutex)),
+	}
+	queue.priorityQueue.data.comparator = comparator
+	return queue
 }
 
 type priorityBlockingQueueIter struct {
@@ -178,18 +194,27 @@ func (this *PriorityBlockingQueue) HashCode() int {
 }
 
 func (this *PriorityBlockingQueue) Offer(i interface{}) bool {
-	//TODO
-	panic("implement me")
+	this.lock.Lock()
+	r := this.priorityQueue.Offer(i)
+	// notify other goroutines which are waiting on this Cond to take
+	this.cond.Signal()
+	this.lock.Unlock()
+	return r
 }
 
 func (this *PriorityBlockingQueue) RemoveHead() interface{} {
-	//TODO
-	panic("implement me")
+	i := this.Poll()
+	if i == nil {
+		panic("queue is empty")
+	}
+	return i
 }
 
 func (this *PriorityBlockingQueue) Poll() interface{} {
-	//TODO
-	panic("implement me")
+	this.lock.Lock()
+	i := this.priorityQueue.Poll()
+	this.lock.Unlock()
+	return i
 }
 
 func (this *PriorityBlockingQueue) Element() interface{} {
@@ -209,36 +234,47 @@ func (this *PriorityBlockingQueue) Peek() interface{} {
 }
 
 func (this *PriorityBlockingQueue) Put(i interface{}) {
-	//TODO
-	panic("implement me")
+	this.Offer(i)
 }
 
 func (this *PriorityBlockingQueue) OfferWithTimeout(i interface{}, t time.Duration) bool {
-	//TODO
-	panic("implement me")
+	//FIXME need to be implemented
+	panic("not supported")
 }
 
 func (this *PriorityBlockingQueue) Take() interface{} {
-	//TODO
-	panic("implement me")
+	for {
+		i := this.Poll()
+		if i != nil {
+			return i
+		}
+		this.cond.Wait()
+	}
 }
 
 func (this *PriorityBlockingQueue) PollWithTimeout(t time.Duration) interface{} {
-	//TODO
-	panic("implement me")
+	//FIXME need to be implemented
+	panic("not supported")
 }
 
 func (this *PriorityBlockingQueue) RemainingCapacity() int {
-	//TODO
-	panic("implement me")
+	return math.MaxInt32
 }
 
-func (this *PriorityBlockingQueue) DrainTo(coll interface{}) int {
-	//TODO
-	panic("implement me")
+func (this *PriorityBlockingQueue) DrainTo(coll Collection) int {
+	return this.DrainToWithLimit(coll, math.MaxInt32)
 }
 
-func (this *PriorityBlockingQueue) DrainToWithLimit(coll interface{}, max int) int {
-	//TODO
-	panic("implement me")
+func (this *PriorityBlockingQueue) DrainToWithLimit(coll Collection, total int) int {
+	this.lock.Lock()
+	max := this.priorityQueue.Size()
+	if max > total {
+		max = total
+	}
+	q := &this.priorityQueue
+	for i := 0; i < max; i++ {
+		coll.Add(q.Poll())
+	}
+	this.lock.Unlock()
+	return max
 }

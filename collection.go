@@ -84,6 +84,6 @@ type BlockingQueue interface {
 	Take() interface{}
 	PollWithTimeout(t time.Duration) interface{}
 	RemainingCapacity() int
-	DrainTo(coll interface{}) int
-	DrainToWithLimit(coll interface{}, max int) int
+	DrainTo(coll Collection) int
+	DrainToWithLimit(coll Collection, max int) int
 }
