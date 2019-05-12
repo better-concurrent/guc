@@ -238,8 +238,7 @@ func (this *PriorityBlockingQueue) Put(i interface{}) {
 }
 
 func (this *PriorityBlockingQueue) OfferWithTimeout(i interface{}, t time.Duration) bool {
-	//FIXME need to be implemented
-	panic("not supported")
+	return this.Offer(i)
 }
 
 func (this *PriorityBlockingQueue) Take() interface{} {
@@ -253,8 +252,8 @@ func (this *PriorityBlockingQueue) Take() interface{} {
 }
 
 func (this *PriorityBlockingQueue) PollWithTimeout(t time.Duration) interface{} {
-	//FIXME need to be implemented
-	panic("not supported")
+	//FIXME need to wait for the given time
+	return this.Take()
 }
 
 func (this *PriorityBlockingQueue) RemainingCapacity() int {
