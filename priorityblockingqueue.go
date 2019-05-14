@@ -36,21 +36,21 @@ type priorityBlockingQueueIter struct {
 	queue *PriorityBlockingQueue
 }
 
-func (this priorityBlockingQueueIter) HasNext() bool {
+func (this *priorityBlockingQueueIter) HasNext() bool {
 	this.idx++
 	return this.idx < len(this.data)
 }
 
-func (this priorityBlockingQueueIter) Next() interface{} {
+func (this *priorityBlockingQueueIter) Next() interface{} {
 	r := this.data[this.idx]
 	return r
 }
 
-func (this priorityBlockingQueueIter) Remove() {
+func (this *priorityBlockingQueueIter) Remove() {
 	this.queue.Remove(this.data[this.idx])
 }
 
-func (this priorityBlockingQueueIter) ForEachRemaining(consumer func(i interface{})) {
+func (this *priorityBlockingQueueIter) ForEachRemaining(consumer func(i interface{})) {
 	for this.HasNext() {
 		consumer(this.Next())
 	}
@@ -58,8 +58,9 @@ func (this priorityBlockingQueueIter) ForEachRemaining(consumer func(i interface
 
 func (this *PriorityBlockingQueue) Iterator() Iterator {
 	arr := this.ToArray()
-	return priorityBlockingQueueIter{
+	return &priorityBlockingQueueIter{
 		data: arr,
+		idx:  -1,
 	}
 }
 
