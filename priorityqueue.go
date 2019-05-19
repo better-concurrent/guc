@@ -255,7 +255,10 @@ func (this *PriorityQueue) Offer(i interface{}) bool {
 }
 
 func (this *PriorityQueue) RemoveHead() interface{} {
-	i := heap.Pop(&this.data)
+	var i interface{} = nil
+	if !this.IsEmpty() {
+		i = heap.Pop(&this.data)
+	}
 	if i == nil {
 		panic("queue is empty")
 	}
@@ -263,6 +266,9 @@ func (this *PriorityQueue) RemoveHead() interface{} {
 }
 
 func (this *PriorityQueue) Poll() interface{} {
+	if this.IsEmpty() {
+		return nil
+	}
 	i := heap.Pop(&this.data)
 	return i
 }

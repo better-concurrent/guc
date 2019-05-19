@@ -59,8 +59,9 @@ func (this *priorityBlockingQueueIter) ForEachRemaining(consumer func(i interfac
 func (this *PriorityBlockingQueue) Iterator() Iterator {
 	arr := this.ToArray()
 	return &priorityBlockingQueueIter{
-		data: arr,
-		idx:  -1,
+		data:  arr,
+		idx:   -1,
+		queue: this,
 	}
 }
 
@@ -198,7 +199,7 @@ func (this *PriorityBlockingQueue) Offer(i interface{}) bool {
 	this.lock.Lock()
 	r := this.priorityQueue.Offer(i)
 	// notify other goroutines which are waiting on this Cond to take
-	this.cond.Signal()
+	this.cond.Broadcast()
 	this.lock.Unlock()
 	return r
 }
@@ -248,7 +249,9 @@ func (this *PriorityBlockingQueue) Take() interface{} {
 		if i != nil {
 			return i
 		}
+		this.cond.L.Lock()
 		this.cond.Wait()
+		this.cond.L.Unlock()
 	}
 }
 
