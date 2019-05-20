@@ -13,6 +13,8 @@ type PriorityBlockingQueue struct {
 	lock          sync.Mutex
 	priorityQueue PriorityQueue
 	cond          *sync.Cond
+
+	hashCode int
 }
 
 func NewPriorityBlockingQueue() *PriorityBlockingQueue {
@@ -192,7 +194,13 @@ func (this *PriorityBlockingQueue) Equals(i interface{}) bool {
 }
 
 func (this *PriorityBlockingQueue) HashCode() int {
-	return int(uintptr(unsafe.Pointer(this)))
+	hashCode := this.hashCode
+	if hashCode != 0 {
+		return hashCode
+	}
+	hashCode = int(uintptr(unsafe.Pointer(this)))
+	this.hashCode = hashCode
+	return hashCode
 }
 
 func (this *PriorityBlockingQueue) Offer(i interface{}) bool {

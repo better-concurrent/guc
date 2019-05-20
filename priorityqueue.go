@@ -17,6 +17,8 @@ type priorityData struct {
 
 type PriorityQueue struct {
 	data priorityData
+
+	hashCode int
 }
 
 type priorityQueueIter struct {
@@ -246,7 +248,13 @@ func (this *PriorityQueue) Equals(i interface{}) bool {
 }
 
 func (this *PriorityQueue) HashCode() int {
-	return int(uintptr(unsafe.Pointer(this)))
+	hashCode := this.hashCode
+	if hashCode != 0 {
+		return hashCode
+	}
+	hashCode = int(uintptr(unsafe.Pointer(this)))
+	this.hashCode = hashCode
+	return hashCode
 }
 
 func (this *PriorityQueue) Offer(i interface{}) bool {
